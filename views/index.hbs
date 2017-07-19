@@ -1,0 +1,196 @@
+<label for="total">
+	Amount $<input id="total" type="text" />
+</label>
+
+<div id="paypal-button"></div>
+
+<div id="dropin-wrapper">
+	<div id="checkout-message"></div>
+	<div id="dropin-container"></div>
+	<button id="submit-button">Submit payment method</button>
+</div>
+
+<script>
+	var button = document.querySelector('#submit-button');
+
+	$.get("/client_token").then(function(response){
+		//BTCreate(response);
+		PayPalCreate(response);
+	});
+
+
+	function BTCreate(token){
+		braintree.dropin.create({
+			// Insert your tokenization key here
+			authorization: token,
+			container: '#dropin-container'
+		}, function (createErr, instance) {
+			button.addEventListener('click', function () {
+
+				var amount = $('#total').val();
+
+				console.info(amount);
+
+				if (amount){
+					instance.requestPaymentMethod(function (requestPaymentMethodErr, payload) {
+						// When the user clicks on the 'Pay' button this code will send the encrypted
+						// payment information in a variable called a payment method nonce
+						$.ajax({
+							type: 'POST',
+							url: '/checkout',
+							data: {'paymentMethodNonce': payload.nonce, 'amount': amount}
+						}).done(function(result) {
+							// Tear down the Drop-in UI
+							instance.teardown(function (teardownErr) {
+								if (teardownErr) {
+									console.error('Could not tear down Drop-in UI!');
+								} else {
+									console.info('Drop-in UI has been torn down!');
+								// Remove the submit payment method button
+								$('#submit-button').remove();
+							}
+						});
+
+							if (result.success) {
+								$('#checkout-message').html('<h1>Success</h1><p>Your Drop-in UI is working! Check your <a href="https://sandbox.braintreegateway.com/login">sandbox Control Panel</a> for your test transactions.</p><p>Refresh to try another transaction.</p>');
+							} else {
+								console.log(result);
+								$('#checkout-message').html('<h1>Error</h1><p>Check your console.</p>');
+							}
+						});
+					});
+				} else {
+					alert("enter amount");
+				}
+			});
+		});
+	}
+
+	function PayPalCreate(token){
+
+		// Create a client.
+		braintree.client.create({
+				authorization: token
+			}, function (clientErr, clientInstance) {
+
+			 // Stop if there was a problem creating the client.
+		  // This could happen if there is a network error or if the authorization
+		  // is invalid.
+		  if (clientErr) {
+			console.error('Error creating client:', clientErr);
+			return;
+		  }
+
+		  // Create a PayPal Checkout component.
+		  braintree.paypalCheckout.create({
+			client: clientInstance
+		  }, function (paypalCheckoutErr, paypalCheckoutInstance) {
+
+			// Stop if there was a problem creating PayPal Checkout.
+			// This could happen if there was a network error or if it's incorrectly
+			// configured.
+			if (paypalCheckoutErr) {
+				console.error('Error creating PayPal Checkout:', paypalCheckoutErr);
+				return;
+			}
+
+			// Set up PayPal with the checkout.js library
+			paypal.Button.render({
+			  env: 'sandbox', // or 'sandbox'
+
+			  payment: function () {
+			  	var amount = parseFloat($('#total').val());
+				return paypalCheckoutInstance.createPayment({
+				  // Your PayPal options here. For available options, see
+				  // http://braintree.github.io/braintree-web/current/PayPalCheckout.html#createPayment
+					flow: 'checkout', // Required
+					amount: amount, // Required
+					currency: 'USD', // Required
+					locale: 'en_US',
+					enableShippingAddress: true,
+					shippingAddressEditable: false,
+					shippingAddressOverride: {
+						recipientName: 'Scruff McGruff',
+						line1: '1234 Main St.',
+						line2: 'Unit 1',
+						city: 'Chicago',
+						countryCode: 'US',
+						postalCode: '60652',
+						state: 'IL',
+						phone: '123.456.7890'
+		 		 	}
+
+			 		// flow: 'vault',
+			 		// billingAgreementDescription: 'Your agreement description',
+			 		// enableShippingAddress: true,
+			 		// shippingAddressEditable: false,
+			 		// shippingAddressOverride: {
+			 		// 	recipientName: 'Scruff McGruff',
+			 		// 	line1: '1234 Main St.',
+			 		// 	line2: 'Unit 1',
+			 		// 	city: 'Chicago',
+			 		// 	countryCode: 'US',
+			 		// 	postalCode: '60652',
+			 		// 	state: 'IL',
+			 		// 	phone: '123.456.7890'
+			 		// }
+				});
+			  },
+
+			  onAuthorize: function (data, actions) {
+				return paypalCheckoutInstance.tokenizePayment(data)
+				.then(function (payload) {
+					var amount = parseFloat($('#total').val());
+					// Submit `payload.nonce` to your server.
+					console.info("hey I was authorized");
+					console.info(payload);
+
+					doIt(payload, amount)
+				});
+			  },
+
+			  onCancel: function (data) {
+				console.log('checkout.js payment cancelled', JSON.stringify(data, 0, 2));
+			  },
+
+			  onError: function (err) {
+				console.error('checkout.js error', err);
+			  }
+			}, '#paypal-button').then(function () {
+				console.info("pay pal button is now ready!");
+			  // The PayPal button will be rendered in an html element with the id
+			  // `paypal-button`. This function will be called when the PayPal button
+			  // is set up and ready to be used.
+			});
+
+		});
+
+		});
+	}
+
+	function doIt(payload, amount){
+
+		// instance.requestPaymentMethod(function (requestPaymentMethodErr, payload) {
+			// When the user clicks on the 'Pay' button this code will send the encrypted
+			// payment information in a variable called a payment method nonce
+			$.ajax({
+				type: 'POST',
+				url: '/checkout',
+				data: {'paymentMethodNonce': payload.nonce, 'amount': amount}
+			}).done(function(result) {
+				// Tear down the Drop-in UI
+				console.info("the results");
+				console.info(result);
+
+				if (result.success) {
+					$('#checkout-message').html('<h1>Success</h1><p>Your Drop-in UI is working! Check your <a href="https://sandbox.braintreegateway.com/login">sandbox Control Panel</a> for your test transactions.</p><p>Refresh to try another transaction.</p>');
+				} else {
+					console.log(result);
+					$('#checkout-message').html('<h1>Error</h1><p>Check your console.</p>');
+				}
+			});
+		// });
+	}
+
+
+</script>
